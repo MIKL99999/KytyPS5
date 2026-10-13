@@ -168,6 +168,26 @@ void TestMappedSrtUsesDirectReaderByDefault() {
         "cache rematerialization did not use the direct reader by default");
 }
 
+void TestNullPageSrtReadsZero() {
+  using namespace Libs::Graphics::ShaderRecompiler::IR;
+  auto plan = ExtractResourcePlan(SrtProgram(0x18u));
+  uint32_t specialization_reads = 0;
+  const SrtRuntime runtime{.userdata = &specialization_reads,
+                           .read_specialization_memory =
+                               RejectSpecializationRead};
+  ResourceSnapshot snapshot;
+  ResourceSpecialization specialization;
+  Check(MaterializeResources(plan, runtime, snapshot, specialization) &&
+            snapshot.flattened_srt == std::vector<uint32_t>{0u},
+        "direct SRT read from a null table pointer did not read zero");
+  // Captured reads go through the ordinary reader instead of the direct one.
+  plan.source_reads = {{0x1000u, 4u}};
+  Check(MaterializeResources(plan, runtime, snapshot, specialization) &&
+            snapshot.flattened_srt == std::vector<uint32_t>{0u} &&
+            snapshot.specialization_reads == plan.source_reads,
+        "captured SRT read from a null table pointer did not read zero untracked");
+}
+
 void TestNativeNestedSrtRefresh() {
   using namespace Libs::Graphics::ShaderRecompiler::IR;
   std::array<uint32_t, 3> first{0u, 0x12345678u, 0xabcdef01u};
@@ -265,6 +285,12 @@ void TestNativeNestedSrtRefresh() {
                       : std::array<uint32_t, 2>{0xfffffffcu, 0xffffu};
     Check(!MaterializeResources(bounded, {.user_data = base}, snapshot, specialization),
           "native SRT accepted address underflow or 48-bit overflow");
+    if (offset > 0) {
+      Check(MaterializeResources(bounded, {.user_data = std::array<uint32_t, 2>{0u, 0u}},
+                                 snapshot, specialization) &&
+                snapshot.flattened_srt[0] == 0u,
+            "native SRT did not read zero through a null table pointer");
+    }
   }
   high.Instruction()->SetArg(0, Value(ScalarReg(6)));
   Check(ExtractResourcePlan(program).srt_code == nullptr,
@@ -842,6 +868,7 @@ void DbgExit(int) { std::abort(); }
 
 int main() {
   TestMappedSrtUsesDirectReaderByDefault();
+  TestNullPageSrtReadsZero();
   TestNativeNestedSrtRefresh();
   TestIntegerRuntimeValueFollowsSrtReads();
   TestSrtAliasesRetainReadPolicy();
