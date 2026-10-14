@@ -247,6 +247,10 @@ void TestNativeNestedSrtRefresh() {
                   std::vector<uint32_t>{(*data)[1], table[0], table[1], (*data)[2]},
           "native SRT refresh lost pointer masking, alignment, or current values");
   }
+  table = pointer_words(nullptr);
+  Check(MaterializeResources(plan, runtime, snapshot, specialization) &&
+            snapshot.flattened_srt == std::vector<uint32_t>{0u, table[0], table[1], 0u},
+        "native SRT did not read zero through a null nested table");
   Check(!MaterializeResources(plan, {.user_data = std::span(user_data).first(1)},
                               snapshot, specialization),
         "native SRT walk accepted truncated user data");
