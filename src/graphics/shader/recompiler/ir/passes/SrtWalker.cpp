@@ -20,9 +20,8 @@ namespace {
 
 // Nothing is ever mapped in the first 64 KiB, on the guest or on the host, so an ordinary read
 // there comes from a null table pointer. The walker reaches such reads when it follows both sides
-// of a branch it cannot decide (the shader itself skips the null table), so read zero there instead
-// of faulting the host.
-constexpr uint64_t NullPageEnd = 0x10000;
+// of a branch it cannot decide, so read zero there instead of faulting the host.
+constexpr uint64_t NULL_PAGE_END = 0x10000;
 
 } // namespace
 
@@ -48,7 +47,7 @@ bool SrtReadCapture::ReadOrdinary(void* userdata, uint64_t address, std::span<ui
 	auto& capture = *static_cast<SrtReadCapture*>(userdata);
 	if (capture.m_source.read_memory != nullptr) {
 		if (!capture.m_source.read_memory(capture.m_source.userdata, address, values)) return false;
-	} else if (address < NullPageEnd) {
+	} else if (address < NULL_PAGE_END) {
 		std::ranges::fill(values, 0u);
 		return true;
 	} else {
@@ -462,7 +461,7 @@ void CompileSrtWalker(ResourcePlan& program) {
 		const auto first = reads.begin()->first;
 		const auto last = reads.rbegin()->first;
 		// Underflowing and null-page tables fall back to the interpreted walk.
-		if (const auto lowest = static_cast<int64_t>(NullPageEnd) - first; lowest > 0) {
+		if (const auto lowest = static_cast<int64_t>(NULL_PAGE_END) - first; lowest > 0) {
 			code.mov(code.r10, lowest);
 			code.cmp(code.rdi, code.r10);
 			code.jb(failed, Xbyak::CodeGenerator::T_NEAR);
@@ -705,7 +704,7 @@ bool SrtWalker::EvaluateRawRead(const Inst& inst, uint64_t& result) {
 		}
 	} else {
 		if (vector) return false;
-		if (address >= NullPageEnd) {
+		if (address >= NULL_PAGE_END) {
 			std::memcpy(&word, reinterpret_cast<const void*>(address), sizeof(word));
 		}
 	}
@@ -1107,7 +1106,8 @@ bool SrtWalker::RefreshFlatBuffer(std::vector<uint32_t>& flat) {
 		using Walker = bool KYTY_SYSV_ABI (*)(const uint32_t*, uint32_t*,
 		    ResourcePlan::EvaluationContext::Entry*, uint64_t, size_t);
 		if (m_program.srt_code->getCode<Walker>()(m_runtime.user_data.data(), flat.data(),
-		        m_context.values.data(), m_context.generation, m_runtime.user_data.size())) {
+		                                          m_context.values.data(), m_context.generation,
+		                                          m_runtime.user_data.size())) {
 			return true;
 		}
 	}
